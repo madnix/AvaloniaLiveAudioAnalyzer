@@ -173,7 +173,7 @@ public partial class MainViewModel : ObservableObject
         ChannelConfigurations = new ObservableGroupedCollection<string, ChannelConfigurationItem>(
             channelConfigurations.GroupBy(item => item.Group));
 
-        StartCapture(deviceId: _audioCaptureService.DeviceId);
+        StartCapture();
     }
     
     #endregion
@@ -257,11 +257,10 @@ public partial class MainViewModel : ObservableObject
     /// <summary>
     /// Starts capturing audio from the specified device
     /// </summary>
-    /// <param name="deviceId">The device ID</param>
-    private void StartCapture(int deviceId)
+    private void StartCapture()
     {
         // Initialize capturing an specific device
-        _audioCaptureService.InitCapture(deviceId);
+        _audioCaptureService.InitCapture();
         
         // Listen out for chunks of information
         _audioCaptureService.AudioChunkAvailable += ProcessAudioChunk;

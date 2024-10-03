@@ -89,7 +89,7 @@ public class BassAudioCaptureService : IDisposable, IAudioCaptureService
     }
 
     /// <inheritdoc />
-    public void InitCapture(int deviceId = 1, int frequency = 44100)
+    public void InitCapture(int frequency = 44100)
     {
         // Store device ID and Buffer
         _deviceId = FindMicrophoneDeviceNumber();
