@@ -11,7 +11,7 @@ using NWaves.Utils;
 
 namespace AvaloniaLiveAudioAnalyzer.Services;
 
-public class AudioCaptureService : IDisposable, IAudioCaptureService
+public class BassAudioCaptureService : IDisposable, IAudioCaptureService
 {
     #region Private Members
     
@@ -23,12 +23,12 @@ public class AudioCaptureService : IDisposable, IAudioCaptureService
     /// <summary>
     /// The device ID we want to capture 
     /// </summary>
-    private readonly int _deviceId;
+    private int _deviceId;
 
     /// <summary>
     /// The handle to the device we want to capture
     /// </summary>
-    private readonly int _handle;
+    private int _handle;
     
     /// <summary>
     /// The last few sets of captured audio bytes, converted to LUFS
@@ -36,7 +36,12 @@ public class AudioCaptureService : IDisposable, IAudioCaptureService
     private readonly Queue<double> _lufs = new();
     
     /// <summary>
-    /// 
+    /// The last few sets of captured audio bytes, converted to LUFS
+    /// </summary>
+    private readonly Queue<double> _LufsLonger = new();
+    
+    /// <summary>
+    /// The frequency to capture at
     /// </summary>
     private readonly int _captureFrequency = 44100;
     
@@ -48,6 +53,12 @@ public class AudioCaptureService : IDisposable, IAudioCaptureService
     public event Action<AudioChunkData>? AudioChunkAvailable;
     
     #endregion
+    
+    #region Public properties
+    
+    public int DeviceId => _deviceId;
+        
+    #endregion
 
     #region Default Constructor
     
@@ -55,20 +66,12 @@ public class AudioCaptureService : IDisposable, IAudioCaptureService
     /// Initializes the audio capture service, and starts capturing the specified device ID 
     /// </summary>
     /// <param name="buffer"></param>
-    /// <param name="frequency"></param>
-    /// <param name="deviceId"></param>
-    public AudioCaptureService(byte[] buffer, int frequency = 44100, int deviceId = 1)
+    public BassAudioCaptureService(byte[] buffer)
     {
-        // Store device ID and Buffer
-        _deviceId = deviceId;
         _buffer = buffer;
-
+        
         // Initialize and start
         Bass.Init();
-        Bass.RecordInit(_deviceId);
-
-        // Start recording (but in a paused state)
-        _handle = Bass.RecordStart(frequency, 2, BassFlags.RecordPause, AudioChunkCaptured);
         
         // Output all devices, then select one
         /*foreach (var device in RecordingDevice.Enumerate())
@@ -83,6 +86,28 @@ public class AudioCaptureService : IDisposable, IAudioCaptureService
             new WaveFileWriter(
                 new FileStream(filePath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read),
                 new WaveFormat());*/
+    }
+
+    /// <inheritdoc />
+    public void InitCapture(int deviceId = 1, int frequency = 44100)
+    {
+        // Store device ID and Buffer
+        _deviceId = FindMicrophoneDeviceNumber();
+        
+        try
+        {
+            Bass.RecordFree();
+        }
+        catch
+        {
+            // ignored
+        }
+        
+        // Initialize new device
+        Bass.RecordInit(_deviceId);
+
+        // Start recording (but in a paused state)
+        _handle = Bass.RecordStart(frequency, 2, BassFlags.RecordPause, 20, AudioChunkCaptured);
     }
     
     #endregion
@@ -140,34 +165,80 @@ public class AudioCaptureService : IDisposable, IAudioCaptureService
         using var reader = new BinaryReader(new MemoryStream(buffer));
         
         for (var i = 0; i < sampleCount; i++)
-            signal[i] = reader.ReadSingle() / 32768f;
+            signal[i] = reader.ReadInt16() / 32768f;
         
         // Calculate the LUFS
         var lufs = Scale.ToDecibel(signal.Rms() * 1.2);
         _lufs.Enqueue(lufs);
+        _LufsLonger.Enqueue(lufs);
         
-        // Keep list to 10 samples
+        // Limit queue sizes
         if (_lufs.Count > 10)
             _lufs.Dequeue();
+        if (_LufsLonger.Count > 200)
+            _LufsLonger.Dequeue();
 
         // Calculate the average
         var averageLufs = _lufs.Average();
+        var averageLongLufs = _LufsLonger.Average();
 
         // Fire off this chunk of information to listeners
         AudioChunkAvailable?.Invoke(new AudioChunkData
         (
-            ShortTermLufs: averageLufs,
-            Loudness: 0,
-            LoudnessRange: 0,
-            RealtimeDynamics: 0,
-            AverageRealtimeDynamics: 0,
-            TruePeakMax: 0,
-            IntegratedLufs: 0,
-            MomentaryMaxLufs: 0,
-            ShortTermMaxLufs: 0
+            // TODO: Make these calculations correct
+            ShortTermLufs: averageLongLufs,
+            Loudness: averageLufs,
+            LoudnessRange: averageLufs + averageLufs * 0.9,
+            RealtimeDynamics: averageLufs + averageLufs * 0.8,
+            AverageRealtimeDynamics: averageLufs + averageLufs * 0.7,
+            TruePeakMax: averageLufs + averageLufs * 0.6,
+            IntegratedLufs: averageLufs + averageLufs * 0.5,
+            MomentaryMaxLufs: averageLufs + averageLufs * 0.4,
+            ShortTermMaxLufs: averageLufs + averageLufs * 0.3
         ));
     }
     
+    /// <summary>
+    /// Find Microphone Device number
+    /// </summary>
+    /// <returns></returns>
+    private int FindMicrophoneDeviceNumber()
+    {
+        // Bass 초기화
+        /*if (!Bass.Init(-1))
+        {
+            Console.WriteLine($"Bass 초기화 실패: {Bass.LastError}");
+            return -1;
+        }*/
+
+        try
+        {
+            // 모든 입력 장치 순회
+            for (var i = 0; i < Bass.RecordingDeviceCount; i++)
+            {
+                var info = Bass.RecordGetDeviceInfo(i);
+                Console.WriteLine($"장치 {i}: {info.Name}, 활성화: {info.IsEnabled}, 기본: {info.IsDefault}, 타입: {info.Type}");
+
+                switch (info.IsEnabled)
+                {
+                    // 마이크로폰 장치 발견, 실제로 사용 가능한지 테스트
+                    case true when info.Type == DeviceType.Microphone &&
+                                   Bass.RecordInit(i) &&
+                                   info.IsDefault:
+                        Bass.RecordFree();
+                        return i;
+                }
+            }
+        }
+        finally
+        {
+            // Bass 해제
+            Bass.Free();
+        }
+
+        // 마이크로폰을 찾지 못한 경우
+        return -1;
+    }
     #endregion
 
     /// <inheritdoc />

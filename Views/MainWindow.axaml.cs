@@ -1,6 +1,6 @@
 using Avalonia.Controls;
 
-namespace AvaloniaApplication.Views;
+namespace AvaloniaLiveAudioAnalyzer.Views;
 
 public partial class MainWindow : Window
 {

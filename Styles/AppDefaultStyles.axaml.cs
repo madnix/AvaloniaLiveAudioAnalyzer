@@ -1,13 +1,12 @@
 ﻿using Avalonia;
-using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 
 namespace AvaloniaLiveAudioAnalyzer;
 
-public class LargeLabelControl : TemplatedControl
+public class AppDefaultStyles : TemplatedControl
 {
     public static readonly StyledProperty<string> LargeTextProperty =
-        AvaloniaProperty.Register<LargeLabelControl, string>(
+        AvaloniaProperty.Register<AppDefaultStyles, string>(
             nameof(LargeText),"Large Text");
 
     public string LargeText
